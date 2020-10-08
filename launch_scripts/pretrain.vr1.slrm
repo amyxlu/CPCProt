@@ -1,0 +1,24 @@
+#!/bin/bash
+#SBATCH --job-name=PATCHED
+#SBATCH --output= <outputdir>
+#SBATCH --error= <errdir>
+#SBATCH --open-mode=append
+#SBATCH --partition= <partition>
+#SBATCH --cpus-per-task=4
+#SBATCH --ntasks-per-node=1
+#SBATCH --mem=10G
+#SBATCH --gres=gpu:2
+#SBATCH --qos=normal
+
+export NCCL_DEBUG=INFO
+export PYTHONFAULTHANDLER=1
+
+source ~/.bashrc
+conda activate gim
+python -c "import torch; print(torch.__version__)"
+# touch /checkpoint/${USER}/${SLURM_JOB_ID}/DELAYPURGE
+
+# run python code 
+cd ~/CPC_prot/src
+/h/amyxlu/miniconda3/envs/gim/bin/python pretrain.py with \
+    "batch_size=$1" \
