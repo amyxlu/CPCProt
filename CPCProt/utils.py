@@ -9,8 +9,8 @@ from sklearn.neighbors import KNeighborsClassifier
 import lmdb
 import pickle
 from tqdm.auto import tqdm
-from tape.tokenizers import TAPETokenizer
-from collate_fn import pad_sequences
+from CPCProt.tokenizer import Tokenizer
+from CPCProt.collate_fn import pad_sequences
 
 def one_hot_encode(x, num_classes):
     '''assumes x is zero-indexed.
@@ -232,7 +232,7 @@ def sample_n_rows(arr, n):
 
 
 def fasta_to_padded_data(fasta_fpath: str):
-    tokenizer = TAPETokenizer()
+    tokenizer = Tokenizer()
     families = []
     clans = []
     seqs = []

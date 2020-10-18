@@ -7,8 +7,8 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
 import sklearn.metrics as skm
-from model.heads import CPCEmbedding
-from utils import train_val_split, one_hot_encode
+from CPCProt.model.heads import CPCProtEmbedding
+from CPCProt.utils import train_val_split, one_hot_encode
 
 SEED = 42
 np.random.seed(SEED)
@@ -153,7 +153,7 @@ class Validation:
 
         # embedder head is right now only used for "patched_cpc" and "strided_cpc"
         # for the augment model, just pull the embedding directly from the model, since no length dim.
-        self.embedder = CPCEmbedding(self.model, emb_type)
+        self.embedder = CPCProtEmbedding(self.model, emb_type)
         self.embed_method = embed_method
 
         if not emb_type in ['patched_cpc', 'strided_cpc']:

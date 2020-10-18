@@ -3,8 +3,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from tape.models.modeling_utils import SequenceToSequenceClassificationHead, ValuePredictionHead, SequenceClassificationHead, PairwiseContactPredictionHead, accuracy
 from tape.datasets import pad_sequences
-from model.cpcprot import CPCProtModel
-from model.base_config import CPCConfig
+from CPCProt.model.base_config import CPCProtConfig
+from CPCProt.model.cpcprot import CPCProtModel
 from tape.registry import registry
 import numpy as np
 import json
@@ -33,8 +33,9 @@ class DownstreamConfig(ProteinConfig):
         self.num_layers = num_layers
         self.emb_type = emb_type
 
-class CPCEmbedding():
-    def __init__(self, model, emb_type: str):    
+class CPCProtEmbedding(nn.Module):
+    def __init__(self, model, emb_type: str = "patched_cpc"):
+        super().__init__()
         self.parallel = isinstance(model, torch.nn.DataParallel)
         self.cpc = model
         self.emb_type = emb_type
@@ -72,27 +73,23 @@ class CPCEmbedding():
         return self.get_staggered_sequence_embs(data, out_type = 'c')
 
     def get_z(self, data, return_mask=False):
-        z = self.cpc(data, return_early='z')
+        patch_len = self.cpc.module.cfg.patch_len if self.parallel else self.cpc.cfg.patch_len
 
-        if self.emb_type == 'strided_cpc':
-            if return_mask:
-                if 'input_mask' in data:
-                    mask = data['input_mask'].to(self.device)
-                elif 'protein_length' in data:
-                    assert(max(data['protein_length']) == data['primary'].shape[1])
-                    mask = torch.tensor(pad_sequences([np.ones(int(i)) for i in data['protein_length']]))
-                    mask = mask.to(dtype=torch.int, device=self.device)
-
-        elif self.emb_type == 'patched_cpc':
-            assert('protein_length' in data)
-            patch_len = self.cpc.module.cfg.patch_len if self.parallel else self.cpc.cfg.patch_len 
-            num_patches = ((data['protein_length'])/patch_len).floor()
-
-            assert(num_patches.max().item() == z.shape[1])
+        if isinstance(data, dict):
+            x = data['primary'].to(self.device) # (N, max_L, H_enc)
+            prot_len = data['protein_length'].to(self.device)
+            num_patches = (prot_len / patch_len).floor()
             mask = torch.tensor(pad_sequences([np.ones(int(i)) for i in num_patches]))
-            mask = mask.to(dtype=torch.int, device=self.device)
+        elif isinstance(data, torch.Tensor):
+            x = data.to(self.device)
+            # not masking anything out in this case
+            mask = torch.ones((x.shape[0], x.shape[1] // patch_len))
         else:
-            raise NotImplementedError
+            print("Input to CPCProt model must be a Torch tensor or the dictionary returned by training dataloaders.")
+            raise
+
+        z = self.cpc(x, return_early='z')
+        mask = mask.to(dtype=torch.int, device=self.device)
 
         if return_mask:
             return (z, mask)
@@ -103,7 +100,7 @@ class CPCEmbedding():
         z, mask = self.get_z(data, return_mask=True)
         if self.parallel:
             # workaround for accessing model attributes when DataParallel
-            c = self.cpc(data, return_early='c')  # pass dictionary in directly; call get_z to get mask
+            c = self.cpc(data, return_early='c')
         else:
             c = self.cpc.get_c(z)
 
@@ -114,13 +111,7 @@ class CPCEmbedding():
 
     def get_z_mean(self, data):
         z, mask = self.get_z(data, return_mask=True)
-        if self.emb_type == 'patched_cpc':
-            mask = mask[:, :, None].expand_as(z)
-        elif self.emb_type == 'strided_cpc':
-            mask = mask.expand(z.shape[-1], -1, -1).permute(1, 2, 0)
-        else:
-            raise
-            
+        mask = mask[:, :, None].expand_as(z)
         return (z*mask).sum(dim=1) / mask.sum(dim = 1)
 
     def get_c_final(self, data):
@@ -133,12 +124,12 @@ class CPCEmbedding():
         c, mask = self.get_c(data, return_mask = True)
         if self.emb_type == 'patched_cpc':
             mask = mask[:, :, None].expand_as(c)
-        elif self.emb_type == 'strided_cpc':
-             mask = mask.expand(c.shape[-1], -1, -1).permute(1, 2, 0)
         else:
             raise NotImplementedError
         return (c*mask).sum(dim=1) / mask.sum(dim=1)
 
+
+###### For calculating downstream benchmarks only #####
 
 def get_metrics(prediction, targets):
     loss = nn.CrossEntropyLoss(ignore_index=-1)(prediction.view(-1, prediction.size(2)), targets.view(-1))
@@ -157,23 +148,15 @@ class ProteinFinetuneModel(ProteinModel):
     def __init__(self, config):
         super().__init__(config)
         self.config = config
-        # self.cpc_args = CPCConfig(**json.load(open(config.CPC_args_path, 'r')))
-        self.cpc_args = CPCConfig()
+        self.cpc_args = CPCProtConfig()
         cpc_args_dict = json.load(open(config.CPC_args_path, 'r'))
-        
-        default_cfg = json.load(open('../pretrain_config.json', 'r'))
-        for key in cpc_args_dict:
-            try:
-                default_cfg[key] = cpc_args_dict[key]
-            except:
-                pass       
-
-        self.cpc_args.__dict__ = default_cfg
+        self.cpc_args.__dict__ = cpc_args_dict
 
         if self.config.emb_type == 'patched_cpc':
-            self.cpc = PatchedCPCModel(self.cpc_args)
-        elif self.config.emb_type == 'strided_cpc':
-            self.cpc = StridedCPCModel(self.cpc_args)
+            self.cpc = CPCProtModel(self.cpc_args)
+        else:
+            raise
+
         self.input_size = self.cpc_args.enc_hidden_dim
         state_dict = dict(torch.load(config.CPC_model_path))
         for i in list(state_dict.keys()):
@@ -181,7 +164,7 @@ class ProteinFinetuneModel(ProteinModel):
                 state_dict[i[7:]] = state_dict[i]
                 del state_dict[i]
         self.cpc.load_state_dict(state_dict)
-        self.embedder = CPCEmbedding(self.cpc, config.emb_type)
+        self.embedder = CPCProtEmbedding(self.cpc, config.emb_type)
         self.emb_method_to_call = getattr(self.embedder, config.emb_method)
         if config.freeze_CPC:
             self.cpc.eval()
@@ -229,4 +212,3 @@ class MLPSeqClf(ProteinFinetuneModel):
         super().__init__(config)
         self.classify = SequenceClassificationHead(
             self.emb_dim, config.num_labels)
-                

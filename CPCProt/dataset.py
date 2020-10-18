@@ -10,7 +10,7 @@ import lmdb
 import pickle as pkl
 import numpy as np
 from torch.utils.data import Dataset
-from tape.tokenizers import TAPETokenizer
+from CPCProt.tokenizer import Tokenizer
 from tape.datasets import LMDBDataset, FastaDataset, dataset_factory
 
 
@@ -22,20 +22,12 @@ class PfamDataset(Dataset):
 
     def __init__(self,
                  data_path: Union[str, Path],
-                 # split: str,
-                 tokenizer: Union[str, TAPETokenizer] = 'iupac',
                  in_memory: bool = False,
                  min_len: int = 0,
                  max_len: int = sys.maxsize,
                  scramble: bool = False):
         super().__init__()
-        # if split not in ('train', 'valid', 'holdout'):
-        #     raise ValueError(
-        #         f"Unrecognized split: {split}. "
-        #         f"Must be one of ['train', 'valid', 'holdout']")
-        if isinstance(tokenizer, str):
-            tokenizer = TAPETokenizer(vocab=tokenizer)
-        self.tokenizer = tokenizer
+        self.tokenizer = Tokenizer()
         self._min_len = min_len
         self._max_len = max_len
         self._scramble = scramble
@@ -76,7 +68,7 @@ class FASTADataset(Dataset):
                  data_file: Path,
                  min_len: int = 0,
                  max_len: int = 100000000,
-                 tokenizer: TAPETokenizer = 'iupac',
+                 tokenizer: Tokenizer = 'iupac',
                  scramble=False):
 
         data_file = Path(data_file)
@@ -84,7 +76,7 @@ class FASTADataset(Dataset):
             raise FileNotFoundError(data_file)
 
         if isinstance(tokenizer, str):
-            tokenizer = TAPETokenizer(vocab=tokenizer)
+            tokenizer = Tokenizer(vocab=tokenizer)
         self.tokenizer = tokenizer
 
         self.min_len = min_len
@@ -100,7 +92,7 @@ class FASTADataset(Dataset):
                 if line[0] == ">":
                     line = line.rstrip().split("_")
                     clan = int(line[3])
-                    pseudolabel = int(line[7])
+                    pseudolabel = int(line[5])
 
                 else:
                     seq = line.rstrip()
@@ -133,89 +125,3 @@ class FASTADataset(Dataset):
 
     def __len__(self):
         return len(self.data)
-
-
-class AugmentDataset(Dataset):
-    def __init__(self,
-                 data_file: Union[str, Path],
-                 tokenizer: Union[str, TAPETokenizer] = 'iupac',
-                 num_augmentations: int = None,
-                 add_special_tokens: bool = True,
-                 min_len: int = 0,
-                 max_len: int = sys.maxsize,
-                 scramble: bool = False):
-
-        data_file = Path(data_file)
-        if not data_file.exists():
-            raise FileNotFoundError(data_file)
-
-        if isinstance(tokenizer, str):
-            tokenizer = TAPETokenizer(vocab=tokenizer)
-        self.tokenizer = tokenizer
-
-        env = lmdb.open(str(data_file), max_readers=1, readonly=True,
-                        lock=False, readahead=False, meminit=False)
-
-        with env.begin(write=False) as txn:
-            num_examples = pkl.loads(txn.get(b'num_examples'))
-
-        self._env = env
-        self._num_examples = num_examples
-        self._num_augmentations = num_augmentations  # only for the HMM augmentation data, None otherwise
-        self._add_special_tokens = add_special_tokens
-
-        self._min_len = min_len
-        self._max_len = max_len
-        self._scramble = scramble
-
-        self.num_too_short = 0
-        self.num_too_long = 0
-
-    def __len__(self) -> int:
-        return self._num_examples
-
-    def __getitem__(self, index: int):
-        # grab corresponding augmentations of a given family
-        if not 0 <= index < self._num_examples:
-            raise IndexError(index)
-
-        else:
-            with self._env.begin(write=False) as txn:
-                subdict = pkl.loads(txn.get(str(index).encode()))
-
-        # sample two augmentations from (0, self._num_augmentations)
-        if self._num_augmentations:
-            # aka using HMM-generated data
-            aug_idx1, aug_idx2 = np.random.randint(0, self._num_augmentations, (2,))
-        else:
-            # aka using real homologs data
-            num_seqs_in_family = len(subdict)
-            aug_idx1, aug_idx2 = np.random.randint(0, num_seqs_in_family, (2,))
-        seq1, seq2 = subdict[aug_idx1], subdict[aug_idx2]
-
-        # encode -- [CLS] and [SEP] as necessary
-        if self._add_special_tokens:
-            seq1 = self.tokenizer.encode(seq1)
-            seq2 = self.tokenizer.encode(seq2)
-        else:
-            seq1 = self.tokenizer.convert_tokens_to_ids(seq1)
-            seq2 = self.tokenizer.convert_tokens_to_ids(seq2)
-
-        # add placeholder token for sequences to drop
-        if (len(seq1) < self._min_len) or (len(seq2) < self._min_len):
-            self.num_too_short += 1
-            seq1, seq2 = "DROP", "DROP"
-
-        elif (len(seq1) > self._max_len) or (len(seq2) > self._max_len):
-            self.num_too_long += 1
-            seq1 = seq1[:self._max_len]
-            seq2 = seq2[:self._max_len]
-
-        # option for a sanity check
-        if self._scramble:
-            np.random.shuffle(seq1)
-            np.random.shuffle(seq2)
-
-        # also return the original index, which denotes the family
-        # return seq1, seq2, aug_idx1, aug_idx2, index
-        return seq1, seq2, len(seq1), len(seq2), index

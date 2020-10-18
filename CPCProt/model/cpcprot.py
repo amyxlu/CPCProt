@@ -1,15 +1,38 @@
+import json
 import torch
 import torch.nn as nn
 from tape.models.modeling_resnet import ProteinResNetConfig, ProteinResNetModel
 from tape import ProteinBertModel
-from model.base_config import CPCAbstractModel, CPCConfig
-from model.encoder import PatchedConvEncoder, PatchedConvEncoderLarge
-from model.autoregressor import GRUAutoregressor, LSTMAutoregressor
-from model.critics import batch_dot_product
-from model.losses import calc_nce
+from CPCProt.model.base_config import CPCAbstractModel, CPCProtConfig
+from CPCProt.model.encoder import PatchedConvEncoder, PatchedConvEncoder2
+from CPCProt.model.autoregressor import GRUAutoregressor, LSTMAutoregressor
+from CPCProt.model.critics import batch_dot_product
+from CPCProt.model.losses import calc_nce
+
+
+# The code builds upon the TAPE package to make use of downstream training
+# mechanisms. However, TAPE abstract models needs a TAPE config class to be specified.
+# A default config is specified here if user is only using this module to
+# obtain embeddings using the configurations (most parameter-efficient variant)
+# in our paper.
+DEFAULT_CONFIG = CPCProtConfig(
+    use_cuda = torch.cuda.is_available(),
+    enc_hidden_dim = 512,
+    encoder_type = "patched_conv",
+    autoregressor_type = "gru",
+    encoder_relu = True,
+    critic_type = "dot_product",
+    K = 4,
+    patch_len = 11,
+    norm_type = "channel_norm",
+    vocab_size = 30
+)
 
 class CPCProtModel(CPCAbstractModel):
-    def __init__(self, cfg):
+    def __init__(self, cfg=None):
+        if not cfg:
+            cfg = DEFAULT_CONFIG
+
         super().__init__(cfg)
         self.cfg = cfg
         self.device = torch.device('cuda') if cfg.use_cuda else torch.device('cpu')
@@ -19,7 +42,7 @@ class CPCProtModel(CPCAbstractModel):
             self.enc = PatchedConvEncoder(self.cfg)
             self._enc_hidden_dim = cfg.enc_hidden_dim
         elif self.cfg.encoder_type == "patched_conv_large":
-            self.enc = PatchedConvEncoderLarge(self.cfg)
+            self.enc = PatchedConvEncoder2(self.cfg)
             self._enc_hidden_dim = cfg.enc_hidden_dim
         elif self.cfg.encoder_type == "bert":
             # use pretrained weights
@@ -80,10 +103,19 @@ class CPCProtModel(CPCAbstractModel):
         return c
 
     def forward(self, data, _run=None, global_itr=None, str_code="", return_early = False):
-        x = data['primary'].to(self.device) # (N, max_L, H_enc)
-        z = self.get_z(x)        
+        if isinstance(data, dict):
+            x = data['primary'].to(self.device) # (N, max_L, H_enc)
+            prot_lens = data['protein_length'].to(self.device)
+        elif isinstance(data, torch.Tensor):
+            x = data.to(self.device)
+            prot_len = torch.tensor(x.shape[1]).to(self.device)
+        else:
+            print("Input to CPCProt model must be a Torch tensor or the dictionary returned by training dataloaders.")
+            raise
+        z = self.get_z(x)
 
         # return tensors without calculating NCE
+        # this is a workaround to avoid accessing attributes when DataParallel-ing this model
         if return_early == 'z':
             return z
         
@@ -95,7 +127,6 @@ class CPCProtModel(CPCAbstractModel):
         N = z.shape[0]
         max_L = z.shape[1]
         idxs = torch.arange(max_L)[None, :].expand(N, max_L).to(self.device)
-        prot_lens = data['protein_length'].to(self.device)
         prot_lens = (prot_lens / self.cfg.patch_len).floor().long()
         prot_lens = prot_lens[:, None].expand((N, max_L))
         mask = ((idxs < prot_lens - self.cfg.K) & (idxs >= self.cfg.min_t)).float()  # N x max_L

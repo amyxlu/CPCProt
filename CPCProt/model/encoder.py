@@ -1,7 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from model.base_config import CPCConfig, CPCAbstractModel
+from CPCProt.model.base_config import CPCProtConfig, CPCAbstractModel
+from CPCProt.model.autoregressor import PositionalEncoding
 
 class IDModule(nn.Module):
     '''https://github.com/facebookresearch/CPC_audio/blob/master/cpc/model.py
@@ -91,7 +92,7 @@ class PatchedConvEncoder(CPCAbstractModel):
         return x, avg
 
 
-class PatchedConvEncoderLarge(CPCAbstractModel):
+class PatchedConvEncoder2(CPCAbstractModel):
     """ A larger convolutional neural network encoder.
     """
     def __init__(self, cfg):
@@ -135,3 +136,73 @@ class PatchedConvEncoderLarge(CPCAbstractModel):
         x = x.permute(0, 2, 1).contiguous()  # back to NLC
         avg = x.mean(dim=1)  # return an average pool embedding
         return x, avg
+
+
+class StridedConvEncoder(CPCAbstractModel):
+
+    def __init__(self, cfg: CPCProtConfig):
+        super().__init__(cfg)
+        self.cfg = cfg
+        self.embedding = nn.Embedding(cfg.vocab_size, cfg.enc_hidden_dim)
+
+        layers = []
+        for _ in range(cfg.enc_num_layers):
+            layers.append(
+                nn.Conv1d(cfg.enc_hidden_dim,
+                          cfg.enc_hidden_dim,
+                          cfg.enc_filter_len,
+                          padding=cfg.enc_filter_len // 2,
+                          )
+            )
+            layers.append(
+                ChannelNorm(cfg.enc_hidden_dim)
+            )
+            layers.append(
+                nn.ReLU()
+            )
+        self.layers = nn.Sequential(*layers)
+
+
+    def forward(self, input_ids):
+        # Embed the input_ids
+        embed = self.embedding(input_ids)
+        embed = embed.permute(0, 2, 1)  # Conv layers are NCW
+        embed = self.layers(embed)
+
+        # Re-permute the sequence embedding to be NWC
+        embed = embed.permute(0, 2, 1).contiguous()
+        avg = embed.mean(dim=1)  # return a "pool" embedding for consistency with TAPE models
+        return embed, avg
+
+
+class TransformerEncoder(CPCAbstractModel):
+    def __init__(self, cfg):
+        super().__init__(cfg)
+        self.cfg = cfg
+        self.device = torch.device('cuda') if cfg.use_cuda else torch.device('cpu')
+        self.embedding = nn.Embedding(cfg.vocab_size, cfg.enc_hidden_dim)
+
+        self.pos_encoder = PositionalEncoding(cfg.enc_hidden_dim, device=self.device)
+        encoder_layer = nn.TransformerEncoderLayer(d_model=cfg.enc_hidden_dim,
+                                                   nhead=cfg.transformer_nhead,
+                                                   dim_feedforward=cfg.transformer_dim_feedforward)
+        self.transformer_encoder = nn.TransformerEncoder(encoder_layer,
+                                                         num_layers=cfg.transformer_num_layers)
+        self.src_mask = None
+
+    def _generate_square_subsequent_mask(self, sz):
+        mask = (torch.triu(torch.ones(sz, sz)) == 1).transpose(0, 1).to(self.device)
+        mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
+        return mask
+
+    def forward(self, input_ids):
+        src = self.embedding(input_ids)
+        if self.src_mask is None or self.src_mask.size(0) != len(src):
+            device = src.device
+            mask = self._generate_square_subsequent_mask(len(src)).to(device)
+            self.src_mask = mask
+
+        src = self.pos_encoder(src)
+        output = self.transformer_encoder(src, self.src_mask)
+        avg = output.mean(dim=1)  # return a "pool" embedding for consistency with TAPE models
+        return output, avg

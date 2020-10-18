@@ -1,4 +1,3 @@
-#!/h/haoran/anaconda3/bin/python
 import os
 import sys
 sys.path.append(os.getcwd())
@@ -10,9 +9,6 @@ import json
 from tape.datasets import FluorescenceDataset, StabilityDataset, RemoteHomologyDataset, SecondaryStructureDataset
 from tape.utils.setup_utils import setup_loader
 from tape import ProteinBertModel, UniRepModel
-import model.cpcprot as patched_cpc
-from model import heads
-from model.base_config import CPCConfig
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -28,6 +24,9 @@ import argparse
 from sklearn.metrics import accuracy_score
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
+import CPCProt.model.cpcprot as patched_cpc
+from CPCProt.model import heads
+from CPCProt.model.base_config import CPCProtConfig
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 random.seed(42)
@@ -105,7 +104,7 @@ funcs = {
 
 if args.model_type == 'cpc':
     base_model_path = Path(args.model_folder)
-    cpc_args = CPCConfig()
+    cpc_args = CPCProtConfig()
     cpc_args_dict = json.load(open(base_model_path/'config.json', 'r'))
     default_cfg = json.load(open('../pretrain_config.json', 'r'))
     for key in cpc_args_dict:
@@ -123,7 +122,7 @@ if args.model_type == 'cpc':
             state_dict[i[7:]] = state_dict[i]
             del state_dict[i]
     base_model.load_state_dict(state_dict)
-    base_model = heads.CPCEmbedding(base_model.to(device).eval(), emb_type = 'patched_cpc')
+    base_model = heads.CPCProtEmbedding(base_model.to(device).eval(), emb_type = 'patched_cpc')
     emb_func = getattr(base_model, funcs[args.task])
 elif args.model_type == 'bert':
     base_model = ProteinBertModel.from_pretrained('bert-base').eval().to(device)

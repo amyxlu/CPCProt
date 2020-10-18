@@ -52,31 +52,3 @@ def collate_fn(batch):
             'family': family,
             'protein_length': protein_length
             }
-
-
-def augment_collate_fn(batch):
-    '''List[Any] -> Dict[str, torch.Tensor]'''
-    # unpack batch and cast to necessary types
-    seq1, seq2, len1, len2, family = tuple(zip(*batch))
-    seq1 = np.array(seq1)
-    seq2 = np.array(seq2)
-    len1 = torch.Tensor(len1)
-    len2 = torch.Tensor(len2)
-    family = torch.LongTensor(family)
-
-    # mask out input seqs with "DROP"
-    with warnings.catch_warnings():
-        warnings.simplefilter(action='ignore', category=FutureWarning)
-        mask = (seq1 == np.array(["DROP"] * len(seq1)))
-        # print('mask.sum()', mask.sum())
-
-    seq1, seq2, len1, len2, family = seq1[~mask], seq2[~mask], len1[~mask], len2[~mask], family[~mask]
-
-    seq1 = torch.from_numpy(pad_sequences(seq1, 0))
-    seq2 = torch.from_numpy(pad_sequences(seq2, 0))
-
-    return {"seq1": seq1,
-            "seq2": seq2,
-            "len1": len1,
-            "len2": len2,
-            "family": family}

@@ -9,12 +9,12 @@ import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 
-from model.base_config import CPCConfig
-from model.cpcprot import CPCProtModel
-from validation import Validation
-from dataset import PfamDataset
-from collate_fn import collate_fn
-from schedulers import ConstantLRSchedule, WarmupConstantSchedule, WarmupLinearSchedule
+from CPCProt.model.base_config import CPCProtConfig
+from CPCProt.model.cpcprot import CPCProtModel
+from CPCProt.validation import Validation
+from CPCProt.dataset import PfamDataset
+from CPCProt.collate_fn import collate_fn
+from CPCProt.schedulers import ConstantLRSchedule, WarmupConstantSchedule, WarmupLinearSchedule
 
 from sacred import Experiment, SETTINGS
 from sacred.observers import FileStorageObserver
@@ -34,9 +34,9 @@ ex.add_config("../pretrain_config.json")
 
 @ex.automain
 def main(_run, _config):
-    # use sacred to control parameters for the CPCConfig object:
+    # use sacred to control parameters for the CPCProtConfig object:
     print("ORIGINAL SACRED ID (for local logs): ", _run._id)
-    cfg = CPCConfig()
+    cfg = CPCProtConfig()
     cfg.__dict__ = _config
     pprint(cfg.__dict__)
 
