@@ -144,29 +144,19 @@ To run pretraining (ensure that `tape-proteins` and the packages specified in `e
 
 For consistency when comparing against benchmarks, we pretrain using the same data. For details on how to structure the data directory for pretraining, see the [data documentation in the TAPE repository](https://github.com/songlab-cal/tape#data).
 
-There should be a symlink between the project home directory to the directory where data is stored. Logs will also be stored here, in a subdirectory `logs/`. In the project home directory:
-
-```
-ln -s <path_to_directory> data
-```
-
-```
-cd src
-python pretrain.py
-```
-
+There should be a symlink between the project home directory to the directory where data is stored. Logs will also be stored here, in a subdirectory `logs/`.
 To specify hyperparameters from the command line:
+
 ```
-cd src
 python pretrain.py with "batch_size=128" 
 ```
 
 An example for sweeping hyperparameters with SLURM is in `launch_scripts/sweep_batchsize.sh`. 
 
 ### Finetuning
-`src/finetune_simple.py` trains a single model using a LR/kNN head on static CPC/BERT/UniREP embeddings. To train a grid of models on a cluster, use `launch_scripts/finetune_simple.sh`, updating `cpc_models_folder`, `output_folder` and `data_root`
+`CPCProt/finetune_simple.py` trains a single model using a LR/kNN head on static CPC/BERT/UniREP embeddings. To train a grid of models on a cluster, use `launch_scripts/finetune_simple.sh`, updating `cpc_models_folder`, `output_folder` and `data_root`
 
-As noted in our paper, for consistency with benchmarks, finetuning results using MLP/CNN heads uses the `tape-train` and `tape-eval` interfaces. We use a light wrapper around the interface (`src/finetune.py` and `src/evaluate.py`), which allows us register downstream heads. The TAPE interface does not allow us to specify downstream hyperparameters (ex: embedding method, CPC model path) as command line arguments - only as a JSON file.
+As noted in our paper, for consistency with benchmarks, finetuning results using MLP/CNN heads uses the `tape-train` and `tape-eval` interfaces. We use a light wrapper around the interface (`CPCProt/finetune.py` and `CPCProt/evaluate.py`), which allows us register downstream heads. The TAPE interface does not allow us to specify downstream hyperparameters (ex: embedding method, CPC model path) as command line arguments - only as a JSON file.
 
 An example call to the training and evaluation scripts is shown in `launch_scripts/finetune.sh`. The script `launch_scripts/run_finetuning.py` will generate json files for each hyperparameter combination for each model, and run them on a cluster. Update the path for `cpc_models_folder` in `run_finetuning.py` and `output_folder` and `data_root` in `finetune.sh`.
 
