@@ -15,5 +15,13 @@ setuptools.setup(
         "License :: OSI Approved :: MIT License",
         "Operating System :: Linux",
     ],
-    python_requires='>=3.6',
+    python_requires=">=3.6",
+    install_requires=[
+        "numpy>=1.19,<2.0",
+        "torch>=1.0,<2.0",
+        "lmdb>=1.0,<2.0",
+        # "tape-proteins>=0.4,<=1.0",
+        "tape-proteins @ git+https://github.com/konstin/tape@patch-1",
+        "scipy>=1.5,<2.0",
+    ],
 )
