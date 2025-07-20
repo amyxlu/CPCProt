@@ -1,11 +1,11 @@
 # DEPRECATION NOTICE
-This project is no longer maintained and the pretrained weights hosted on the server has been removed. Please use the [bio_embeddings](https://github.com/sacdallago/bio_embeddings) library instead:
+This project is no longer maintained and the pretrained weights hosted on the server have been removed. Please use the [bio_embeddings](https://github.com/sacdallago/bio_embeddings) library instead:
 
 ```
-pip install bio-embeddings[all]
+pip install bio-embeddings[cpcprot]
 ```
 
-See their documentation for details.
+See the [`bio_embeddings.embed`](https://docs.bioembeddings.com/v0.2.3/api/bio_embeddings.embed.html) documentation for details.
 
 # CPCProt
 
