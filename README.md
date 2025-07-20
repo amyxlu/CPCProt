@@ -1,4 +1,14 @@
+# DEPRECATION NOTICE
+This project is no longer maintained and the pretrained weights hosted on the server has been removed. Please use the [bio_embeddings](https://github.com/sacdallago/bio_embeddings) library instead:
+
+```
+pip install bio-embeddings[all]
+```
+
+See their documentation for details.
+
 # CPCProt
+
 Parameter-efficient embeddings for proteins, pretrained using a contrastive loss to maximize mutual information between local and sequentially global embeddings.
 
 **For more details, see: [https://www.biorxiv.org/content/10.1101/2020.09.04.283929v1.full.pdf](https://www.biorxiv.org/content/10.1101/2020.09.04.283929v1.full.pdf).**
@@ -15,7 +25,7 @@ Parameter-efficient embeddings for proteins, pretrained using a contrastive loss
     
 ## Pretrained Model Weights
 
-Pretrained model weights are hosted [here](http://hershey.csb.utoronto.ca/CPCProt/weights/).
+~~Pretrained model weights are hosted [here](http://hershey.csb.utoronto.ca/CPCProt/weights/).~~  This server is no longer maintained. 
 
 To download weights for the default (i.e. most parameter-efficient) version of the CPCProt model:
 
